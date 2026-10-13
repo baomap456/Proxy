@@ -16,6 +16,7 @@
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <maven.compiler.source>21</maven.compiler.source>
         <maven.compiler.target>21</maven.compiler.target>
+        <exec.mainClass>com.proxy.ProxyServer</exec.mainClass>
     </properties>
 
     <dependencies>
@@ -25,7 +26,20 @@
             <version>4.11</version>
             <scope>test</scope>
         </dependency>
+
+        <dependency>
+            <groupId>io.javalin</groupId>
+            <artifactId>javalin</artifactId>
+            <version>6.3.0</version>
+        </dependency>
+
+        <dependency>
+            <groupId>org.slf4j</groupId>
+            <artifactId>slf4j-simple</artifactId>
+            <version>2.0.13</version>
+        </dependency>
     </dependencies>
+
 
     <build>
         <pluginManagement><!-- lock down plugins versions to avoid using Maven defaults (may be moved to parent pom) -->
@@ -74,7 +88,7 @@
                     <artifactId>exec-maven-plugin</artifactId>
                     <version>3.6.4</version>
                     <configuration>
-                        <mainClass>com.proxy.ProxyServer</mainClass> 
+                        <mainClass>${exec.mainClass}</mainClass>
                     </configuration>
                 </plugin>
             </plugins>

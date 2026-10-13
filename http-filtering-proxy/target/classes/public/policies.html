@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="vi">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Policy Rules - Proxy Admin</title>
+    <link rel="stylesheet" href="/css/style.css">
+    <script src="/js/layout.js"></script>
+    <script src="/js/api.js"></script>
+</head>
+
+<body data-page="policies" data-title="Policy Rules">
+
+    <div class="panel">
+        <div class="panel-title">
+            Danh sách rule
+            <button class="btn" id="btn-add">+ Thêm rule</button>
+        </div>
+        <table>
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>Type</th>
+                    <th>Value</th>
+                    <th>Action</th>
+                    <th>Priority</th>
+                    <th>Enabled</th>
+                    <th>Note</th>
+                </tr>
+            </thead>
+            <tbody id="rules-body">
+                <tr>
+                    <td colspan="7" class="empty">Chưa có dữ liệu</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+
+    <script>
+        // TODO: Api.get('/api/policies') rồi render vào #rules-body
+    </script>
+</body>
+
+</html>

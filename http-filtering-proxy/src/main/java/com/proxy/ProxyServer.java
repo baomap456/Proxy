@@ -5,7 +5,7 @@ import java.net.Socket;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 public class ProxyServer {
-     private static final int PORT = 8080;
+     private static final int PORT = 8888;
     private static final int THREAD_POOL_SIZE = 50;
 
     public static void main(String[] args) {

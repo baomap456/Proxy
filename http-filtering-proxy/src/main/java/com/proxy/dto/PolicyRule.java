@@ -1,4 +1,4 @@
-package com.proxy.common.dto;
+package com.proxy.dto;
 
 public class PolicyRule {
     private Long id;

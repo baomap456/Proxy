@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="vi">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Dashboard - Proxy Admin</title>
+    <link rel="stylesheet" href="/css/style.css">
+    <script src="/js/layout.js"></script>
+    <script src="/js/api.js"></script>
+</head>
+
+<body data-page="dashboard" data-title="Dashboard">
+
+    <div class="cards">
+        <div class="card">
+            <div class="label">Tổng request</div>
+            <div class="value" id="stat-total">--</div>
+        </div>
+        <div class="card">
+            <div class="label">Bị chặn (BLOCK)</div>
+            <div class="value danger" id="stat-block">--</div>
+        </div>
+        <div class="card">
+            <div class="label">Cho phép (ALLOW)</div>
+            <div class="value success" id="stat-allow">--</div>
+        </div>
+        <div class="card">
+            <div class="label">Rule đang bật</div>
+            <div class="value" id="stat-rules">--</div>
+        </div>
+    </div>
+
+    <div class="panel">
+        <div class="panel-title">Top domain bị chặn</div>
+        <div class="empty">Chưa có dữ liệu (sẽ làm ở issue Dashboard)</div>
+    </div>
+
+    <script>
+        // TODO: gọi Api.get('/api/stats') khi backend có endpoint
+    </script>
+</body>
+
+</html>
