@@ -1,5 +1,6 @@
 package com.proxy;
 
+import java.io.BufferedInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -9,6 +10,8 @@ import java.net.SocketTimeoutException;
 
 import com.proxy.http.HttpRequest;
 import com.proxy.http.HttpRequestParser;
+import com.proxy.http.HttpResponse;
+import com.proxy.http.HttpResponseParser;
 /**
  * Xử lý 1 kết nối client: parse request, forward tới server đích, relay response về.
  * PHIÊN BẢN CORE: chưa gọi RuleEngine/FilterEngine/Logger DB - sẽ tích hợp ở bước sau.
@@ -55,27 +58,44 @@ public class ClientHandler implements Runnable {
 
     /** Xử lý HTTP thường (GET/POST...): forward request, relay response, rồi đóng kết nối. */
     private void handlePlainHttp(HttpRequest request, OutputStream clientOut) {
+        boolean responseStarted = false;   // đã gửi response chính về client chưa
         try (Socket targetSocket = new Socket()) {
             targetSocket.connect(new InetSocketAddress(request.getHost(), request.getPort()), CONNECT_TIMEOUT_MS);
             targetSocket.setSoTimeout(SOCKET_TIMEOUT_MS);
 
             OutputStream targetOut = targetSocket.getOutputStream();
-            InputStream targetIn = targetSocket.getInputStream();
+            // Cần buffer vì parser đọc từng byte khi tìm hết header
+            InputStream targetIn = new BufferedInputStream(targetSocket.getInputStream(), 8192);
 
-            // Forward nguyên văn request line + headers
+            // Forward nguyên văn request line + headers, rồi body nếu có
             targetOut.write(request.getRawRequestLineAndHeaders());
-            // Forward body nếu có (VD: POST)
             if (request.getBody() != null) {
                 targetOut.write(request.getBody());
             }
             targetOut.flush();
 
-            // Relay response từ server đích về client (copy byte-by-byte, không cần parse sâu ở bước core)
-            copyStream(targetIn, clientOut);
+            // Đọc response; bỏ qua response tạm 1xx (vd: 100 Continue) nhưng vẫn forward về client
+            HttpResponse response;
+            while (true) {
+                response = HttpResponseParser.parseHead(targetIn);
+                if (response == null) {
+                    throw new IOException("Server đích đóng kết nối mà không trả response");
+                }
+                clientOut.write(response.toHeadBytes());
+                clientOut.flush();
+                if (!response.isInterim()) break;
+            }
+            responseStarted = true;
 
+            HttpResponseParser.forwardBody(response, request.getMethod(), targetIn, clientOut);
+            System.out.println("[RESPONSE] " + request.getHost() + " <- " + response);
+
+        } catch (SocketTimeoutException e) {
+            System.err.println("[TIMEOUT] " + request.getHost() + ":" + request.getPort() + " -> " + e.getMessage());
+            if (!responseStarted) sendSimpleErrorResponse(clientOut, 504, "Gateway Timeout");
         } catch (IOException e) {
-            System.err.println("[ERROR] Khong the ket noi server dich " + request.getHost() + ":" + request.getPort() + " -> " + e.getMessage());
-            sendSimpleErrorResponse(clientOut, 502, "Bad Gateway");
+            System.err.println("[ERROR] Loi voi server dich " + request.getHost() + ":" + request.getPort() + " -> " + e.getMessage());
+            if (!responseStarted) sendSimpleErrorResponse(clientOut, 502, "Bad Gateway");
         }
     }
 
