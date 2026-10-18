@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="vi">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Access Logs - Proxy Admin</title>
+    <link rel="stylesheet" href="/css/style.css">
+    <script src="/js/layout.js"></script>
+    <script src="/js/api.js"></script>
+</head>
+
+<body data-page="logs" data-title="Access Logs">
+
+    <div class="panel">
+        <div class="panel-title">
+            Nhật ký truy cập
+            <button class="btn secondary" id="btn-refresh">Làm mới</button>
+        </div>
+        <table>
+            <thead>
+                <tr>
+                    <th>Thời gian</th>
+                    <th>Client IP</th>
+                    <th>Method</th>
+                    <th>Host</th>
+                    <th>Path</th>
+                    <th>Decision</th>
+                    <th>Rule</th>
+                    <th>Status</th>
+                </tr>
+            </thead>
+            <tbody id="logs-body">
+                <tr>
+                    <td colspan="8" class="empty">Chưa có dữ liệu</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+
+    <script>
+        // TODO: Api.get('/api/logs') rồi render vào #logs-body
+    </script>
+</body>
+
+</html>
