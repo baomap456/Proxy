@@ -12,34 +12,163 @@
 
 <body data-page="logs" data-title="Access Logs">
 
+    <div id="msg" class="alert error" hidden></div>
+
     <div class="panel">
         <div class="panel-title">
             Nhật ký truy cập
             <button class="btn secondary" id="btn-refresh">Làm mới</button>
         </div>
-        <table>
-            <thead>
-                <tr>
-                    <th>Thời gian</th>
-                    <th>Client IP</th>
-                    <th>Method</th>
-                    <th>Host</th>
-                    <th>Path</th>
-                    <th>Decision</th>
-                    <th>Rule</th>
-                    <th>Status</th>
-                </tr>
-            </thead>
-            <tbody id="logs-body">
-                <tr>
-                    <td colspan="8" class="empty">Chưa có dữ liệu</td>
-                </tr>
-            </tbody>
-        </table>
+
+        <div class="filters">
+            <input type="text" id="f-host" placeholder="Lọc theo host...">
+            <select id="f-decision">
+                <option value="">Tất cả decision</option>
+                <option value="BLOCK">BLOCK</option>
+                <option value="ALLOW">ALLOW</option>
+            </select>
+            <select id="f-size">
+                <option value="20">20 dòng/trang</option>
+                <option value="50">50 dòng/trang</option>
+                <option value="100">100 dòng/trang</option>
+            </select>
+            <label><input type="checkbox" id="f-auto"> Tự động làm mới (5 giây)</label>
+        </div>
+
+        <div class="table-wrap">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Thời gian</th>
+                        <th>Client IP</th>
+                        <th>Method</th>
+                        <th>Host</th>
+                        <th>Path</th>
+                        <th>Decision</th>
+                        <th>Rule</th>
+                        <th>Status</th>
+                    </tr>
+                </thead>
+                <tbody id="logs-body">
+                    <tr>
+                        <td colspan="8" class="empty">Đang tải...</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <div class="pager">
+            <span id="page-info"></span>
+            <span>
+                <button class="btn secondary small" id="btn-prev">‹ Trước</button>
+                <button class="btn secondary small" id="btn-next">Sau ›</button>
+            </span>
+        </div>
     </div>
 
     <script>
-        // TODO: Api.get('/api/logs') rồi render vào #logs-body
+        (function () {
+            const body = document.getElementById("logs-body");
+            const msg = document.getElementById("msg");
+            const pageInfo = document.getElementById("page-info");
+            const btnPrev = document.getElementById("btn-prev");
+            const btnNext = document.getElementById("btn-next");
+            const f = {
+                host: document.getElementById("f-host"),
+                decision: document.getElementById("f-decision"),
+                size: document.getElementById("f-size"),
+                auto: document.getElementById("f-auto"),
+            };
+
+            let page = 0;
+            let seq = 0;          // bỏ qua kết quả của request cũ trả về muộn
+            let autoTimer = null;
+            let hostTimer = null;
+
+            const fmt = (n) => Number(n || 0).toLocaleString("vi-VN");
+            const fmtTime = (ts) => String(ts ?? "").replace("T", " ").slice(0, 19);
+
+            function buildUrl() {
+                const p = new URLSearchParams();
+                p.set("page", page);
+                p.set("size", f.size.value);
+                const host = f.host.value.trim();
+                if (host) p.set("host", host);
+                if (f.decision.value) p.set("decision", f.decision.value);
+                return "/api/logs?" + p.toString();
+            }
+
+            function render(data) {
+                const rows = data.content || [];
+                const totalPages = Number(data.totalPages) || 0;
+                const total = Number(data.totalElements) || 0;
+
+                if (!rows.length) {
+                    body.innerHTML = '<tr><td colspan="8" class="empty">Không có bản ghi nào</td></tr>';
+                } else {
+                    body.innerHTML = rows.map((l) => `
+            <tr>
+              <td>${escapeHtml(fmtTime(l.timestamp))}</td>
+              <td>${escapeHtml(l.clientIp)}</td>
+              <td>${escapeHtml(l.method)}</td>
+              <td>${escapeHtml(l.host)}</td>
+              <td class="cell-path" title="${escapeHtml(l.path)}">${escapeHtml(l.path)}</td>
+              <td><span class="tag ${escapeHtml(l.decision)}">${escapeHtml(l.decision)}</span></td>
+              <td>${l.ruleId == null ? "-" : Number(l.ruleId)}</td>
+              <td>${l.statusCode == null ? "-" : Number(l.statusCode)}</td>
+            </tr>`).join("");
+                }
+
+                pageInfo.textContent = `Trang ${page + 1} / ${Math.max(totalPages, 1)} · ${fmt(total)} bản ghi`;
+                btnPrev.disabled = page <= 0;
+                btnNext.disabled = page + 1 >= totalPages;
+            }
+
+            async function load() {
+                const mySeq = ++seq;
+                try {
+                    const data = await Api.get(buildUrl());
+                    if (mySeq !== seq) return;
+
+                    // Đang ở trang không còn dữ liệu (vd: sau khi lọc) -> lùi về trang cuối
+                    if (!(data.content || []).length && data.totalElements > 0 && page > 0) {
+                        page = Math.max(Number(data.totalPages) - 1, 0);
+                        return load();
+                    }
+                    render(data);
+                    msg.hidden = true;
+                } catch (e) {
+                    if (mySeq !== seq) return;
+                    body.innerHTML = '<tr><td colspan="8" class="empty">Không tải được dữ liệu</td></tr>';
+                    msg.textContent = "Không tải được log: " + e.message;
+                    msg.hidden = false;
+                }
+            }
+
+            function reloadFromFirstPage() {
+                page = 0;
+                load();
+            }
+
+            // ---------- Sự kiện ----------
+            document.getElementById("btn-refresh").addEventListener("click", load);
+            btnPrev.addEventListener("click", () => { if (page > 0) { page--; load(); } });
+            btnNext.addEventListener("click", () => { page++; load(); });
+
+            f.host.addEventListener("input", () => {
+                clearTimeout(hostTimer);
+                hostTimer = setTimeout(reloadFromFirstPage, 400);
+            });
+            f.decision.addEventListener("change", reloadFromFirstPage);
+            f.size.addEventListener("change", reloadFromFirstPage);
+
+            f.auto.addEventListener("change", () => {
+                clearInterval(autoTimer);
+                autoTimer = f.auto.checked ? setInterval(load, 5000) : null;
+            });
+
+            load();
+        })();
     </script>
 </body>
 

@@ -12,6 +12,8 @@
 
 <body data-page="policies" data-title="Policy Rules">
 
+    <div id="msg" class="alert" hidden></div>
+
     <div class="panel">
         <div class="panel-title">
             Danh sách rule
@@ -27,18 +29,238 @@
                     <th>Priority</th>
                     <th>Enabled</th>
                     <th>Note</th>
+                    <th>Thao tác</th>
                 </tr>
             </thead>
             <tbody id="rules-body">
                 <tr>
-                    <td colspan="7" class="empty">Chưa có dữ liệu</td>
+                    <td colspan="8" class="empty">Đang tải...</td>
                 </tr>
             </tbody>
         </table>
     </div>
 
+    <!-- Form thêm / sửa -->
+    <div class="modal" id="modal">
+        <div class="modal-box">
+            <h2 id="modal-title">Thêm rule</h2>
+            <div id="form-error" class="form-error" hidden></div>
+
+            <label>Type
+                <select id="f-type">
+                    <option value="DOMAIN">DOMAIN</option>
+                    <option value="KEYWORD">KEYWORD</option>
+                    <option value="IP">IP</option>
+                </select>
+            </label>
+            <label>Value
+                <input type="text" id="f-value">
+            </label>
+            <label>Action
+                <select id="f-action">
+                    <option value="BLOCK">BLOCK</option>
+                    <option value="ALLOW">ALLOW</option>
+                </select>
+            </label>
+            <label>Priority (số nhỏ được xét trước)
+                <input type="number" id="f-priority" value="100">
+            </label>
+            <label>Note
+                <input type="text" id="f-note">
+            </label>
+            <label class="inline">
+                <input type="checkbox" id="f-enabled" checked> Bật rule này
+            </label>
+
+            <div class="modal-actions">
+                <button class="btn secondary" id="btn-cancel">Hủy</button>
+                <button class="btn" id="btn-save">Lưu</button>
+            </div>
+        </div>
+    </div>
+
     <script>
-        // TODO: Api.get('/api/policies') rồi render vào #rules-body
+        (function () {
+            const body = document.getElementById("rules-body");
+            const msg = document.getElementById("msg");
+            const modal = document.getElementById("modal");
+            const formError = document.getElementById("form-error");
+            const btnSave = document.getElementById("btn-save");
+            const f = {
+                type: document.getElementById("f-type"),
+                value: document.getElementById("f-value"),
+                action: document.getElementById("f-action"),
+                priority: document.getElementById("f-priority"),
+                enabled: document.getElementById("f-enabled"),
+                note: document.getElementById("f-note"),
+            };
+            const PLACEHOLDER = {
+                DOMAIN: "vd: facebook.com hoặc *.gambling.com",
+                KEYWORD: "vd: casino",
+                IP: "vd: 10.0.0.5",
+            };
+
+            let rules = [];
+            let editingId = null;
+            let msgTimer = null;
+
+            // ---------- Thông báo ----------
+            function showMsg(text, isError) {
+                msg.textContent = text;
+                msg.className = "alert" + (isError ? " error" : "");
+                msg.hidden = false;
+                clearTimeout(msgTimer);
+                msgTimer = setTimeout(() => (msg.hidden = true), 4000);
+            }
+            function showFormError(text) {
+                formError.textContent = text;
+                formError.hidden = false;
+            }
+
+            // ---------- Tải và hiển thị ----------
+            async function load() {
+                try {
+                    rules = await Api.get("/api/policies");
+                    render();
+                } catch (e) {
+                    body.innerHTML = '<tr><td colspan="8" class="empty">Không tải được dữ liệu</td></tr>';
+                    showMsg("Không tải được danh sách rule: " + e.message, true);
+                }
+            }
+
+            function render() {
+                if (!rules.length) {
+                    body.innerHTML = '<tr><td colspan="8" class="empty">Chưa có rule nào</td></tr>';
+                    return;
+                }
+                body.innerHTML = rules.map((r) => `
+          <tr>
+            <td>${Number(r.id)}</td>
+            <td>${escapeHtml(r.type)}</td>
+            <td>${escapeHtml(r.value)}</td>
+            <td><span class="tag ${escapeHtml(r.action)}">${escapeHtml(r.action)}</span></td>
+            <td>${Number(r.priority)}</td>
+            <td><input type="checkbox" data-toggle="${Number(r.id)}" ${r.enabled ? "checked" : ""}></td>
+            <td>${escapeHtml(r.note)}</td>
+            <td>
+              <button class="btn secondary small" data-edit="${Number(r.id)}">Sửa</button>
+              <button class="btn danger small" data-del="${Number(r.id)}">Xóa</button>
+            </td>
+          </tr>`).join("");
+            }
+
+            // ---------- Modal ----------
+            function updatePlaceholder() {
+                f.value.placeholder = PLACEHOLDER[f.type.value] || "";
+            }
+
+            function openModal(rule) {
+                editingId = rule ? rule.id : null;
+                document.getElementById("modal-title").textContent =
+                    rule ? "Sửa rule #" + rule.id : "Thêm rule";
+                f.type.value = rule ? rule.type : "DOMAIN";
+                f.value.value = rule ? rule.value : "";
+                f.action.value = rule ? rule.action : "BLOCK";
+                f.priority.value = rule ? rule.priority : 100;
+                f.enabled.checked = rule ? rule.enabled : true;
+                f.note.value = rule && rule.note ? rule.note : "";
+                updatePlaceholder();
+                formError.hidden = true;
+                modal.classList.add("open");
+                f.value.focus();
+            }
+
+            function closeModal() {
+                modal.classList.remove("open");
+            }
+
+            // ---------- Lưu (thêm / sửa) ----------
+            async function save() {
+                const value = f.value.value.trim();
+                const priority = parseInt(f.priority.value, 10);
+                if (!value) return showFormError("Value không được để trống");
+                if (Number.isNaN(priority)) return showFormError("Priority phải là số nguyên");
+
+                const payload = {
+                    type: f.type.value,
+                    value: value,
+                    action: f.action.value,
+                    priority: priority,
+                    enabled: f.enabled.checked,
+                    note: f.note.value.trim() || null,
+                };
+
+                btnSave.disabled = true;
+                try {
+                    if (editingId === null) await Api.post("/api/policies", payload);
+                    else await Api.put("/api/policies/" + editingId, payload);
+                    closeModal();
+                    showMsg("Đã lưu rule", false);
+                    await load();
+                } catch (e) {
+                    showFormError(
+                        e.status === 400
+                            ? "Dữ liệu không hợp lệ (type, action hoặc value sai)"
+                            : "Không lưu được: " + e.message
+                    );
+                } finally {
+                    btnSave.disabled = false;
+                }
+            }
+
+            // ---------- Bật / tắt ----------
+            async function toggle(id, checkbox) {
+                const r = rules.find((x) => x.id === id);
+                if (!r) return;
+                try {
+                    await Api.put("/api/policies/" + id, { ...r, enabled: checkbox.checked });
+                    r.enabled = checkbox.checked;
+                } catch (e) {
+                    checkbox.checked = !checkbox.checked;
+                    showMsg("Không cập nhật được trạng thái: " + e.message, true);
+                }
+            }
+
+            // ---------- Xóa ----------
+            async function remove(id) {
+                const r = rules.find((x) => x.id === id);
+                if (!r) return;
+                if (!confirm("Xóa rule #" + id + " (" + r.value + ")?")) return;
+                try {
+                    await Api.del("/api/policies/" + id);
+                    showMsg("Đã xóa rule #" + id, false);
+                    await load();
+                } catch (e) {
+                    showMsg("Không xóa được: " + e.message, true);
+                }
+            }
+
+            // ---------- Gắn sự kiện ----------
+            document.getElementById("btn-add").addEventListener("click", () => openModal(null));
+            document.getElementById("btn-cancel").addEventListener("click", closeModal);
+            btnSave.addEventListener("click", save);
+            f.type.addEventListener("change", updatePlaceholder);
+
+            modal.addEventListener("click", (e) => { if (e.target === modal) closeModal(); });
+            document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeModal(); });
+
+            body.addEventListener("click", (e) => {
+                const edit = e.target.closest("[data-edit]");
+                const del = e.target.closest("[data-del]");
+                if (edit) {
+                    const r = rules.find((x) => x.id === Number(edit.dataset.edit));
+                    if (r) openModal(r);
+                } else if (del) {
+                    remove(Number(del.dataset.del));
+                }
+            });
+            body.addEventListener("change", (e) => {
+                const t = e.target.closest("[data-toggle]");
+                if (t) toggle(Number(t.dataset.toggle), t);
+            });
+
+            load();
+        })();
     </script>
 </body>
 

@@ -12,6 +12,8 @@
 
 <body data-page="dashboard" data-title="Dashboard">
 
+    <div id="msg" class="alert error" hidden></div>
+
     <div class="cards">
         <div class="card">
             <div class="label">Tổng request</div>
@@ -20,6 +22,7 @@
         <div class="card">
             <div class="label">Bị chặn (BLOCK)</div>
             <div class="value danger" id="stat-block">--</div>
+            <div class="sub" id="stat-rate"></div>
         </div>
         <div class="card">
             <div class="label">Cho phép (ALLOW)</div>
@@ -32,12 +35,87 @@
     </div>
 
     <div class="panel">
-        <div class="panel-title">Top domain bị chặn</div>
-        <div class="empty">Chưa có dữ liệu (sẽ làm ở issue Dashboard)</div>
+        <div class="panel-title">
+            Top 5 domain được truy cập nhiều nhất
+            <span class="muted" id="updated"></span>
+        </div>
+        <table>
+            <thead>
+                <tr>
+                    <th>#</th>
+                    <th>Domain</th>
+                    <th>Số request</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody id="top-body">
+                <tr>
+                    <td colspan="4" class="empty">Đang tải...</td>
+                </tr>
+            </tbody>
+        </table>
     </div>
 
     <script>
-        // TODO: gọi Api.get('/api/stats') khi backend có endpoint
+        (function () {
+            const REFRESH_MS = 10000;
+            const el = {
+                total: document.getElementById("stat-total"),
+                block: document.getElementById("stat-block"),
+                allow: document.getElementById("stat-allow"),
+                rate: document.getElementById("stat-rate"),
+                rules: document.getElementById("stat-rules"),
+                top: document.getElementById("top-body"),
+                updated: document.getElementById("updated"),
+                msg: document.getElementById("msg"),
+            };
+            const fmt = (n) => Number(n || 0).toLocaleString("vi-VN");
+
+            function renderTop(list) {
+                if (!list.length) {
+                    el.top.innerHTML = '<tr><td colspan="4" class="empty">Chưa có dữ liệu</td></tr>';
+                    return;
+                }
+                const max = Math.max(...list.map((d) => Number(d.count) || 0), 1);
+                el.top.innerHTML = list.map((d, i) => {
+                    const count = Number(d.count) || 0;
+                    const pct = Math.round((count / max) * 100);
+                    return `
+            <tr>
+              <td class="rank">${i + 1}</td>
+              <td>${escapeHtml(d.host)}</td>
+              <td>${fmt(count)}</td>
+              <td><div class="bar"><span style="width:${pct}%"></span></div></td>
+            </tr>`;
+                }).join("");
+            }
+
+            async function load() {
+                try {
+                    const [summary, active] = await Promise.all([
+                        Api.get("/api/stats/summary"),
+                        Api.get("/api/policies/active"),
+                    ]);
+                    const total = Number(summary.totalRequests) || 0;
+                    const blocked = Number(summary.blocked) || 0;
+
+                    el.total.textContent = fmt(total);
+                    el.block.textContent = fmt(blocked);
+                    el.allow.textContent = fmt(Math.max(total - blocked, 0));
+                    el.rate.textContent = (Number(summary.blockRate) || 0).toFixed(1) + "% tổng request";
+                    el.rules.textContent = fmt(active.length);
+                    renderTop(summary.topDomains || []);
+                    el.updated.textContent = "Cập nhật lúc " + new Date().toLocaleTimeString("vi-VN");
+                    el.msg.hidden = true;
+                } catch (e) {
+                    el.msg.textContent = "Không tải được số liệu: " + e.message;
+                    el.msg.hidden = false;
+                }
+            }
+
+            load();
+            setInterval(() => { if (!document.hidden) load(); }, REFRESH_MS);
+        })();
     </script>
 </body>
 
