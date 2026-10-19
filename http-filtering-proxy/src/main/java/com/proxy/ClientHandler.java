@@ -12,6 +12,7 @@ import com.proxy.http.HttpRequest;
 import com.proxy.http.HttpRequestParser;
 import com.proxy.http.HttpResponse;
 import com.proxy.http.HttpResponseParser;
+import com.proxy.policy.PolicyEngine;
 /**
  * Xử lý 1 kết nối client: parse request, forward tới server đích, relay response về.
  * PHIÊN BẢN CORE: chưa gọi RuleEngine/FilterEngine/Logger DB - sẽ tích hợp ở bước sau.
@@ -19,11 +20,12 @@ import com.proxy.http.HttpResponseParser;
 public class ClientHandler implements Runnable {
     private static final int CONNECT_TIMEOUT_MS = 5000;
     private static final int SOCKET_TIMEOUT_MS = 15000;
-
     private final Socket clientSocket;
+    private final PolicyEngine engine;
 
-    public ClientHandler(Socket clientSocket) {
+    public ClientHandler(Socket clientSocket, PolicyEngine engine) {
         this.clientSocket = clientSocket;
+        this.engine = engine;
     }
 
     @Override
