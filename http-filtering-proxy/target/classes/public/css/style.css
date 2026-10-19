@@ -223,3 +223,16 @@ td input[type="checkbox"] { width: 16px; height: 16px; cursor: pointer; }
   .sidebar { width: 64px; }
   .sidebar .brand, .sidebar nav a span.text { display: none; }
 }
+/* ---------- Blacklist ---------- */
+.quick-add { display: flex; flex-wrap: wrap; gap: 10px; }
+.quick-add select, .quick-add input[type="text"] {
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 14px;
+  background: #fff;
+  color: var(--text);
+}
+.quick-add input.grow { flex: 1; min-width: 220px; }
+.hint { font-size: 12px; color: var(--muted); margin-top: 8px; }
+.hint a { color: var(--primary); }

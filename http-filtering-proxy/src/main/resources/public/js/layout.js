@@ -1,31 +1,32 @@
 (function () {
-    const NAV = [
-        { id: "dashboard", label: "Dashboard", href: "/index.html", icon: "📊" },
-        { id: "policies", label: "Policy Rules", href: "/policies.html", icon: "🛡️" },
-        { id: "logs", label: "Access Logs", href: "/logs.html", icon: "📜" },
-    ];
+  const NAV = [
+    { id: "dashboard", label: "Dashboard", href: "/index.html", icon: "📊" },
+    { id: "policies", label: "Policy Rules", href: "/policies.html", icon: "🛡️" },
+    { id: "logs", label: "Access Logs", href: "/logs.html", icon: "📜" },
+    { id: "blacklist", label: "Blacklist", href: "/blacklist.html", icon: "🚫" },
+  ];
 
-    document.addEventListener("DOMContentLoaded", () => {
-        const page = document.body.dataset.page;
-        const title = document.body.dataset.title || "";
+  document.addEventListener("DOMContentLoaded", () => {
+    const page = document.body.dataset.page;
+    const title = document.body.dataset.title || "";
 
-        // Gom nội dung gốc của trang vào <div class="content">
-        const content = document.createElement("div");
-        content.className = "content";
-        while (document.body.firstChild) {
-            content.appendChild(document.body.firstChild);
-        }
+    // Gom nội dung gốc của trang vào <div class="content">
+    const content = document.createElement("div");
+    content.className = "content";
+    while (document.body.firstChild) {
+      content.appendChild(document.body.firstChild);
+    }
 
-        const navHtml = NAV.map(
-            (n) => `
+    const navHtml = NAV.map(
+      (n) => `
       <a href="${n.href}" class="${n.id === page ? "active" : ""}">
         ${n.icon} <span class="text">${n.label}</span>
       </a>`
-        ).join("");
+    ).join("");
 
-        const app = document.createElement("div");
-        app.className = "app";
-        app.innerHTML = `
+    const app = document.createElement("div");
+    app.className = "app";
+    app.innerHTML = `
       <aside class="sidebar">
         <div class="brand">🔒 Proxy Admin</div>
         <nav>${navHtml}</nav>
@@ -37,7 +38,7 @@
         </header>
       </div>`;
 
-        app.querySelector(".main").appendChild(content);
-        document.body.appendChild(app);
-    });
+    app.querySelector(".main").appendChild(content);
+    document.body.appendChild(app);
+  });
 })();
