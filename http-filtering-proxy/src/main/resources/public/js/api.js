@@ -24,3 +24,17 @@ function escapeHtml(s) {
         "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
     }[c]));
 }
+
+function validateRuleValue(type, value) {
+    if (type === "IP") {
+        const m = value.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})(?:\/(\d{1,2}))?$/);
+        if (!m) return "IP phải có dạng 10.0.0.5 hoặc 10.0.0.0/24";
+        if (m.slice(1, 5).some((n) => Number(n) > 255)) return "Mỗi phần của IP phải từ 0 đến 255";
+        if (m[5] !== undefined && Number(m[5]) > 32) return "Độ dài mạng (CIDR) phải từ 0 đến 32";
+    } else if (type === "DOMAIN") {
+        if (!/^(\*\.)?([a-z0-9-]+\.)+[a-z0-9-]{2,}$/i.test(value)) {
+            return "Domain không hợp lệ, vd: facebook.com hoặc *.gambling.com (không kèm http:// hay đường dẫn)";
+        }
+    }
+    return null;
+}

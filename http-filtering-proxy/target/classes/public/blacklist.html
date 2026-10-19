@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="vi">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Blacklist - Proxy Admin</title>
+    <link rel="stylesheet" href="/css/style.css">
+    <script src="/js/layout.js"></script>
+    <script src="/js/api.js"></script>
+</head>
+
+<body data-page="blacklist" data-title="Blacklist">
+
+    <div id="msg" class="alert" hidden></div>
+
+    <div class="panel">
+        <div class="panel-title">Thêm vào blacklist</div>
+        <div class="quick-add">
+            <select id="f-type">
+                <option value="DOMAIN">DOMAIN</option>
+                <option value="KEYWORD">KEYWORD</option>
+                <option value="IP">IP</option>
+            </select>
+            <input type="text" id="f-value" class="grow">
+            <input type="text" id="f-note" placeholder="Ghi chú (không bắt buộc)">
+            <button class="btn" id="btn-add">Chặn</button>
+        </div>
+        <div class="hint">
+            Mục mới dùng priority 100, hành động BLOCK. Muốn đổi priority hoặc tạo rule ALLOW,
+            vào trang <a href="/policies.html">Policy Rules</a>.
+        </div>
+    </div>
+
+    <div class="panel">
+        <div class="panel-title">
+            <span>Đang chặn <span class="muted" id="bl-count"></span></span>
+            <input type="text" id="bl-search" placeholder="Tìm trong blacklist..."
+                style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px">
+        </div>
+        <table>
+            <thead>
+                <tr>
+                    <th>Type</th>
+                    <th>Value</th>
+                    <th>Ghi chú</th>
+                    <th>Bật</th>
+                    <th>Thao tác</th>
+                </tr>
+            </thead>
+            <tbody id="bl-body">
+                <tr>
+                    <td colspan="5" class="empty">Đang tải...</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+
+    <script>
+        (function () {
+            const body = document.getElementById("bl-body");
+            const msg = document.getElementById("msg");
+            const count = document.getElementById("bl-count");
+            const search = document.getElementById("bl-search");
+            const btnAdd = document.getElementById("btn-add");
+            const f = {
+                type: document.getElementById("f-type"),
+                value: document.getElementById("f-value"),
+                note: document.getElementById("f-note"),
+            };
+            const PLACEHOLDER = {
+                DOMAIN: "vd: facebook.com hoặc *.gambling.com",
+                KEYWORD: "vd: casino",
+                IP: "vd: 10.0.0.5 hoặc 10.0.0.0/24",
+            };
+
+            let rules = [];
+            let msgTimer = null;
+
+            function showMsg(text, isError) {
+                msg.textContent = text;
+                msg.className = "alert" + (isError ? " error" : "");
+                msg.hidden = false;
+                clearTimeout(msgTimer);
+                msgTimer = setTimeout(() => (msg.hidden = true), 4000);
+            }
+
+            const blocked = () => rules.filter((r) => r.action === "BLOCK");
+
+            async function load() {
+                try {
+                    rules = await Api.get("/api/policies");
+                    render();
+                } catch (e) {
+                    body.innerHTML = '<tr><td colspan="5" class="empty">Không tải được dữ liệu</td></tr>';
+                    showMsg("Không tải được blacklist: " + e.message, true);
+                }
+            }
+
+            function render() {
+                const all = blocked();
+                const q = search.value.trim().toLowerCase();
+                const list = all.filter((r) => !q || String(r.value).toLowerCase().includes(q));
+                count.textContent = "(" + all.length + " mục)";
+
+                if (!list.length) {
+                    body.innerHTML = '<tr><td colspan="5" class="empty">' +
+                        (all.length ? "Không có mục nào khớp" : "Blacklist đang trống") + "</td></tr>";
+                    return;
+                }
+                body.innerHTML = list.map((r) => `
+          <tr>
+            <td>${escapeHtml(r.type)}</td>
+            <td>${escapeHtml(r.value)}</td>
+            <td>${escapeHtml(r.note)}</td>
+            <td><input type="checkbox" data-toggle="${Number(r.id)}" ${r.enabled ? "checked" : ""}></td>
+            <td><button class="btn danger small" data-del="${Number(r.id)}">Xóa</button></td>
+          </tr>`).join("");
+            }
+
+            async function add() {
+                const type = f.type.value;
+                const value = f.value.value.trim();
+                if (!value) return showMsg("Vui lòng nhập giá trị cần chặn", true);
+
+                const err = validateRuleValue(type, value);
+                if (err) return showMsg(err, true);
+
+                const dup = blocked().some(
+                    (r) => r.type === type && String(r.value).toLowerCase() === value.toLowerCase());
+                if (dup) return showMsg("Mục này đã có trong blacklist", true);
+
+                btnAdd.disabled = true;
+                try {
+                    await Api.post("/api/policies", {
+                        type, value, action: "BLOCK", priority: 100, enabled: true,
+                        note: f.note.value.trim() || null,
+                    });
+                    f.value.value = "";
+                    f.note.value = "";
+                    showMsg("Đã thêm vào blacklist", false);
+                    await load();
+                    f.value.focus();
+                } catch (e) {
+                    showMsg(e.status === 400 ? "Dữ liệu không hợp lệ" : "Không thêm được: " + e.message, true);
+                } finally {
+                    btnAdd.disabled = false;
+                }
+            }
+
+            async function toggle(id, checkbox) {
+                const r = rules.find((x) => x.id === id);
+                if (!r) return;
+                try {
+                    await Api.put("/api/policies/" + id, { ...r, enabled: checkbox.checked });
+                    r.enabled = checkbox.checked;
+                } catch (e) {
+                    checkbox.checked = !checkbox.checked;
+                    showMsg("Không cập nhật được trạng thái: " + e.message, true);
+                }
+            }
+
+            async function remove(id) {
+                const r = rules.find((x) => x.id === id);
+                if (!r) return;
+                if (!confirm("Xóa khỏi blacklist: " + r.value + "?")) return;
+                try {
+                    await Api.del("/api/policies/" + id);
+                    showMsg("Đã xóa " + r.value, false);
+                    await load();
+                } catch (e) {
+                    showMsg("Không xóa được: " + e.message, true);
+                }
+            }
+
+            // ---------- Sự kiện ----------
+            f.type.addEventListener("change", () => { f.value.placeholder = PLACEHOLDER[f.type.value] || ""; });
+            f.value.placeholder = PLACEHOLDER[f.type.value];
+            btnAdd.addEventListener("click", add);
+            f.value.addEventListener("keydown", (e) => { if (e.key === "Enter") add(); });
+            f.note.addEventListener("keydown", (e) => { if (e.key === "Enter") add(); });
+            search.addEventListener("input", render);
+
+            body.addEventListener("click", (e) => {
+                const del = e.target.closest("[data-del]");
+                if (del) remove(Number(del.dataset.del));
+            });
+            body.addEventListener("change", (e) => {
+                const t = e.target.closest("[data-toggle]");
+                if (t) toggle(Number(t.dataset.toggle), t);
+            });
+
+            load();
+        })();
+    </script>
+</body>
+
+</html>
