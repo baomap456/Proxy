@@ -4,6 +4,10 @@ import java.sql.PreparedStatement;
 import java.sql.SQLException;
 import java.sql.Types;
 import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -29,6 +33,9 @@ import com.proxy.dto.LogEntry;
 public class LogController {
 
     private static final Set<String> DECISIONS = Set.of("BLOCK", "ALLOW");
+    private static final int MAX_BATCH = 1000;
+    private static final DateTimeFormatter DB_TS = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+    private static final ZoneId VN = ZoneId.of("Asia/Ho_Chi_Minh");
 
     private final JdbcTemplate jdbc;
 
@@ -50,6 +57,22 @@ public class LogController {
         return e;
     };
 
+    private static String normalizeTimestamp(String ts) {
+        if (ts == null || ts.isBlank()) return LocalDateTime.now(VN).format(DB_TS);
+        String s = ts.trim().replace(' ', 'T');
+        try {
+            LocalDateTime t;
+            if (s.endsWith("Z") || s.matches(".*[+-]\\d{2}:\\d{2}$")) {
+                t = OffsetDateTime.parse(s).atZoneSameInstant(VN).toLocalDateTime();
+            } else {
+                t = LocalDateTime.parse(s);
+            }
+            return t.format(DB_TS);
+        } catch (DateTimeParseException ex) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "timestamp không hợp lệ: " + ts);
+        }
+    }
+
     // ---------- Issue #11 ----------
     @PostMapping("/batch")
     @Transactional
@@ -57,13 +80,17 @@ public class LogController {
         if (logs == null || logs.isEmpty()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Batch rỗng");
         }
+        if (logs.size() > MAX_BATCH) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Tối đa " + MAX_BATCH + " log mỗi lần");
+        }
         for (LogEntry e : logs) {
+            if (e == null) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Phần tử log không được null");
+            }
             if (e.getDecision() == null || !DECISIONS.contains(e.getDecision())) {
                 throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "decision phải là BLOCK hoặc ALLOW");
             }
-            if (e.getTimestamp() == null || e.getTimestamp().isBlank()) {
-                e.setTimestamp(LocalDateTime.now().toString());
-            }
+            e.setTimestamp(normalizeTimestamp(e.getTimestamp()));
         }
 
         jdbc.batchUpdate(
