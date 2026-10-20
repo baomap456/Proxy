@@ -15,5 +15,6 @@
 /home/bao/Work/Proxy/http-filtering-proxy/src/main/java/com/proxy/policy/Decision.java
 /home/bao/Work/Proxy/http-filtering-proxy/src/main/java/com/proxy/config/ConfigLoader.java
 /home/bao/Work/Proxy/http-filtering-proxy/src/main/java/com/proxy/policy/PolicyEngine.java
+/home/bao/Work/Proxy/http-filtering-proxy/src/main/java/com/proxy/policy/PolicyRefresher.java
 /home/bao/Work/Proxy/http-filtering-proxy/src/main/java/com/proxy/http/HttpResponseParser.java
 /home/bao/Work/Proxy/http-filtering-proxy/src/main/java/com/proxy/log/LogLevel.java
