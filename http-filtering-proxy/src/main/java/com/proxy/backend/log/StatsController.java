@@ -18,11 +18,9 @@ public class StatsController {
 
     @GetMapping("/summary")
     public Map<String, Object> summary() {
-        Long totalObj = jdbc.queryForObject("SELECT COUNT(*) FROM access_logs", Long.class);
-        Long blockedObj = jdbc.queryForObject(
-            "SELECT COUNT(*) FROM access_logs WHERE decision = 'BLOCK'", Long.class);
-        long total = totalObj == null ? 0 : totalObj;
-        long blocked = blockedObj == null ? 0 : blockedObj;
+        long total = count("SELECT COUNT(*) FROM access_logs");
+        long blocked = count("SELECT COUNT(*) FROM access_logs WHERE decision = 'BLOCK'");
+        long isolated = count("SELECT COUNT(*) FROM access_logs WHERE decision = 'ISOLATE'");
 
         List<Map<String, Object>> top = jdbc.queryForList(
             "SELECT host, COUNT(*) AS count FROM access_logs "
@@ -34,7 +32,13 @@ public class StatsController {
         return Map.of(
             "totalRequests", total,
             "blocked", blocked,
+            "isolated", isolated,
             "blockRate", rate,
             "topDomains", top);
+    }
+
+    private long count(String sql) {
+        Long v = jdbc.queryForObject(sql, Long.class);
+        return v == null ? 0 : v;
     }
 }

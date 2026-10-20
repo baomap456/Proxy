@@ -9,6 +9,11 @@ public record Decision(String action, PolicyRule rule) {
 
     public boolean isBlocked() { return "BLOCK".equals(action); }
 
+    public boolean isIsolated() { return "ISOLATE".equals(action); }
+
+    /** ALLOW vì không rule nào khớp (khác với ALLOW do rule whitelist). */
+    public boolean isDefaultAllow() { return rule == null && "ALLOW".equals(action); }
+
     /** Dùng cho cột rule_id khi ghi log. */
     public Long ruleId() { return rule == null ? null : rule.getId(); }
 }

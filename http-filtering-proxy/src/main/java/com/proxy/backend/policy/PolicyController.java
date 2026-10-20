@@ -23,7 +23,7 @@ import com.proxy.dto.PolicyRule;
 public class PolicyController {
 
     private static final Set<String> TYPES = Set.of("DOMAIN", "KEYWORD", "IP");
-    private static final Set<String> ACTIONS = Set.of("BLOCK", "ALLOW");
+    private static final Set<String> ACTIONS = Set.of("BLOCK", "ALLOW", "ISOLATE");
 
     private final PolicyRepository repo;
 
@@ -67,7 +67,7 @@ public class PolicyController {
                 || r.getType() == null || r.getAction() == null
                 || !TYPES.contains(r.getType()) || !ACTIONS.contains(r.getAction())) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
-                    "type phải là DOMAIN/KEYWORD/IP, action phải là BLOCK/ALLOW, value không được rỗng");
+                    "type phải là DOMAIN/KEYWORD/IP, action phải là BLOCK/ALLOW/ISOLATE, value không được rỗng");
         }
         r.setValue(r.getValue().trim());
     }
