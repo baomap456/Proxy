@@ -25,6 +25,10 @@
             <div class="sub" id="stat-rate"></div>
         </div>
         <div class="card">
+            <div class="label">Cách ly (ISOLATE)</div>
+            <div class="value warning" id="stat-isolate">--</div>
+        </div>
+        <div class="card">
             <div class="label">Cho phép (ALLOW)</div>
             <div class="value success" id="stat-allow">--</div>
         </div>
@@ -62,6 +66,7 @@
             const el = {
                 total: document.getElementById("stat-total"),
                 block: document.getElementById("stat-block"),
+                isolate: document.getElementById("stat-isolate"),
                 allow: document.getElementById("stat-allow"),
                 rate: document.getElementById("stat-rate"),
                 rules: document.getElementById("stat-rules"),
@@ -101,7 +106,9 @@
 
                     el.total.textContent = fmt(total);
                     el.block.textContent = fmt(blocked);
-                    el.allow.textContent = fmt(Math.max(total - blocked, 0));
+                    const isolated = Number(summary.isolated) || 0;
+                    el.isolate.textContent = fmt(isolated);
+                    el.allow.textContent = fmt(Math.max(total - blocked - isolated, 0));
                     el.rate.textContent = (Number(summary.blockRate) || 0).toFixed(1) + "% tổng request";
                     el.rules.textContent = fmt(active.length);
                     renderTop(summary.topDomains || []);

@@ -32,7 +32,7 @@ import com.proxy.dto.LogEntry;
 @RequestMapping("/api/logs")
 public class LogController {
 
-    private static final Set<String> DECISIONS = Set.of("BLOCK", "ALLOW");
+    private static final Set<String> DECISIONS = Set.of("BLOCK", "ALLOW", "ISOLATE");
     private static final int MAX_BATCH = 1000;
     private static final DateTimeFormatter DB_TS = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
     private static final ZoneId VN = ZoneId.of("Asia/Ho_Chi_Minh");
@@ -88,7 +88,7 @@ public class LogController {
                 throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Phần tử log không được null");
             }
             if (e.getDecision() == null || !DECISIONS.contains(e.getDecision())) {
-                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "decision phải là BLOCK hoặc ALLOW");
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "decision phải là BLOCK hoặc ALLOW hoặc ISOLATE");
             }
             e.setTimestamp(normalizeTimestamp(e.getTimestamp()));
         }

@@ -1,29 +1,38 @@
 package com.proxy.policy;
 
+import java.net.URLDecoder;
+import java.nio.charset.StandardCharsets;
+import java.text.Normalizer;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
 import java.util.function.Predicate;
+import java.util.regex.Pattern;
 
 import com.proxy.dto.PolicyRule;
 
 /**
- * Đánh giá request theo danh sách rule DOMAIN/KEYWORD/IP.
- * Rule enabled, sắp theo priority tăng dần (cùng priority thì id nhỏ trước),
- * rule khớp đầu tiên thắng. Không rule nào khớp thì ALLOW.
- * An toàn đa luồng: updateRules thay cả danh sách một lần (copy-on-write).
+ * Đánh giá theo rule DOMAIN/KEYWORD/IP với action BLOCK/ALLOW/ISOLATE.
+ * Pha 1 (request): rule enabled sắp theo priority tăng dần (cùng priority thì id nhỏ trước),
+ *   rule khớp đầu tiên thắng; không rule nào khớp -> ALLOW mặc định.
+ * Pha 2 (nội dung): chỉ chạy khi pha 1 ra ALLOW mặc định. Rule KEYWORD được so với văn bản
+ *   của trang, cũng theo thứ tự priority, rule khớp đầu tiên thắng.
+ * An toàn đa luồng: updateRules thay nguyên một snapshot bất biến.
  */
 public class PolicyEngine {
 
     private static final Set<String> TYPES = Set.of("DOMAIN", "KEYWORD", "IP");
-    private static final Set<String> ACTIONS = Set.of("BLOCK", "ALLOW");
+    private static final Set<String> ACTIONS = Set.of("BLOCK", "ALLOW", "ISOLATE");
+    private static final Pattern SPACES = Pattern.compile("[\\s\\u00A0]+");
 
     private record Target(String clientIp, String host, String url) { }
     private record CompiledRule(PolicyRule rule, Predicate<Target> matcher) { }
+    private record ContentRule(PolicyRule rule, String keyword) { }
+    private record Snapshot(List<CompiledRule> requestRules, List<ContentRule> contentRules) { }
 
-    private volatile List<CompiledRule> compiled = List.of();
+    private volatile Snapshot snapshot = new Snapshot(List.of(), List.of());
 
     /** Nạp (hoặc nạp lại) toàn bộ rule. Rule không hợp lệ bị bỏ qua, không văng exception. */
     public void updateRules(List<PolicyRule> rules) {
@@ -36,27 +45,32 @@ public class PolicyEngine {
         usable.sort(Comparator.comparingInt(PolicyRule::getPriority)
                 .thenComparing(PolicyRule::getId, Comparator.nullsLast(Comparator.<Long>naturalOrder())));
 
-        List<CompiledRule> next = new ArrayList<>();
+        List<CompiledRule> requestRules = new ArrayList<>();
+        List<ContentRule> contentRules = new ArrayList<>();
         for (PolicyRule r : usable) {
             Predicate<Target> matcher = switch (r.getType()) {
                 case "DOMAIN" -> domainMatcher(r.getValue());
                 case "KEYWORD" -> keywordMatcher(r.getValue());
                 default -> ipMatcher(r.getValue());
             };
-            if (matcher != null) next.add(new CompiledRule(r, matcher));
+            if (matcher == null) continue;
+            requestRules.add(new CompiledRule(r, matcher));
+            if ("KEYWORD".equals(r.getType())) {
+                contentRules.add(new ContentRule(r, normalizeText(r.getValue())));
+            }
         }
-        this.compiled = List.copyOf(next);
+        this.snapshot = new Snapshot(List.copyOf(requestRules), List.copyOf(contentRules));
     }
 
     /**
+     * Pha 1.
      * @param clientIp IP của client kết nối vào proxy
-     * @param host     host đích (đã tách khỏi port)
+     * @param host     host đích
      * @param url      URL hoặc path của request (rỗng với CONNECT)
      */
     public Decision evaluate(String clientIp, String host, String url) {
-        Target t = new Target(normalizeIp(clientIp), normalizeHost(host),
-                url == null ? "" : url.toLowerCase(Locale.ROOT));
-        for (CompiledRule c : compiled) {
+        Target t = new Target(normalizeIp(clientIp), normalizeHost(host), normalizeText(decodeUrl(url)));
+        for (CompiledRule c : snapshot.requestRules()) {
             if (c.matcher().test(t)) {
                 return new Decision(c.rule().getAction(), c.rule());
             }
@@ -64,12 +78,27 @@ public class PolicyEngine {
         return Decision.DEFAULT_ALLOW;
     }
 
-    public int ruleCount() { return compiled.size(); }
+    /** Pha 2: rule KEYWORD đầu tiên xuất hiện trong văn bản trang, null nếu không có. */
+    public Decision evaluateContent(String text) {
+        List<ContentRule> rules = snapshot.contentRules();
+        if (rules.isEmpty() || text == null || text.isEmpty()) return null;
+        String t = normalizeText(text);
+        for (ContentRule c : rules) {
+            if (t.contains(c.keyword())) {
+                return new Decision(c.rule().getAction(), c.rule());
+            }
+        }
+        return null;
+    }
+
+    /** Có rule KEYWORD nào không; không có thì không cần đọc body để quét. */
+    public boolean hasContentRules() { return !snapshot.contentRules().isEmpty(); }
+
+    public int ruleCount() { return snapshot.requestRules().size(); }
 
     // ---------- Kiểm tra rule ----------
 
     private static boolean isUsable(PolicyRule r) {
-        // Set.of(...).contains(null) ném NPE nên phải kiểm tra null trước
         return r != null && r.isEnabled()
                 && r.getType() != null && TYPES.contains(r.getType())
                 && r.getAction() != null && ACTIONS.contains(r.getAction())
@@ -94,9 +123,10 @@ public class PolicyEngine {
 
     // ---------- KEYWORD ----------
 
-    /** Khớp không phân biệt hoa thường trên host hoặc URL. */
+    /** Khớp không phân biệt hoa thường trên host hoặc URL (đã giải mã %xx). */
     private static Predicate<Target> keywordMatcher(String value) {
-        String k = value.trim().toLowerCase(Locale.ROOT);
+        String k = normalizeText(value);
+        if (k.isEmpty()) return null;
         return t -> t.host().contains(k) || t.url().contains(k);
     }
 
@@ -120,8 +150,8 @@ public class PolicyEngine {
 
         Long base = parseIpv4(addr);
         if (base == null) {
-            if (slash >= 0) return null;                // CIDR chỉ hỗ trợ IPv4
-            String exact = normalizeHost(addr);         // IPv6: so khớp chuỗi
+            if (slash >= 0) return null;
+            String exact = normalizeHost(addr);
             if (exact.isEmpty()) return null;
             return t -> exact.equals(t.clientIp()) || exact.equals(t.host());
         }
@@ -136,7 +166,6 @@ public class PolicyEngine {
         return ip != null && (ip & mask) == network;
     }
 
-    /** Parse IPv4 thủ công (không dùng InetAddress để tránh tra DNS). Trả null nếu không phải IPv4. */
     private static Long parseIpv4(String s) {
         if (s == null) return null;
         String[] parts = s.split("\\.", -1);
@@ -156,7 +185,23 @@ public class PolicyEngine {
 
     // ---------- Chuẩn hóa ----------
 
-    /** Chữ thường, bỏ port, bỏ ngoặc IPv6, bỏ dấu chấm cuối. */
+    /** Unicode NFC, chữ thường, gộp mọi khoảng trắng (kể cả &nbsp;) thành 1 dấu cách. */
+    private static String normalizeText(String s) {
+        if (s == null) return "";
+        String n = Normalizer.normalize(s, Normalizer.Form.NFC).toLowerCase(Locale.ROOT);
+        return SPACES.matcher(n).replaceAll(" ").trim();
+    }
+
+    /** Giải mã %xx để từ khóa tiếng Việt khớp được URL đã mã hóa. Lỗi định dạng thì giữ nguyên. */
+    private static String decodeUrl(String url) {
+        if (url == null || url.isEmpty()) return "";
+        try {
+            return URLDecoder.decode(url, StandardCharsets.UTF_8);
+        } catch (IllegalArgumentException e) {
+            return url;
+        }
+    }
+
     private static String normalizeHost(String host) {
         if (host == null) return "";
         String h = host.trim().toLowerCase(Locale.ROOT);

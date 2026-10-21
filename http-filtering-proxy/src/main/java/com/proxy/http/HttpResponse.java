@@ -3,6 +3,8 @@ package com.proxy.http;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
+import java.util.Set;
 
 /**
  * Model đại diện cho phần đầu (status line + headers) của 1 HTTP response.
@@ -12,11 +14,15 @@ public class HttpResponse {
 
     public record Header(String name, String value) { }
 
+    /** Header luôn bị bỏ khi proxy gửi body đã sửa (giải nén, làm sạch...). */
+    private static final Set<String> REWRITE_ALWAYS_DROP = Set.of(
+            "content-length", "transfer-encoding", "connection", "keep-alive", "proxy-connection", "trailer");
+
     private String httpVersion;
     private int statusCode;
     private String reasonPhrase = "";
     private final List<Header> headers = new ArrayList<>();
-    private long bodyBytes;   // số byte body đã forward (dùng cho log sau này)
+    private long bodyBytes;   // số byte body đã forward/đọc (dùng cho log)
 
     public String getHttpVersion() { return httpVersion; }
     public void setHttpVersion(String httpVersion) { this.httpVersion = httpVersion; }
@@ -46,8 +52,30 @@ public class HttpResponse {
         return statusCode >= 100 && statusCode < 200 && statusCode != 101;
     }
 
+    /** Content-Type không kèm tham số, chữ thường. Rỗng nếu không có. */
+    public String getMimeType() {
+        String ct = getHeader("Content-Type");
+        if (ct == null) return "";
+        int semi = ct.indexOf(';');
+        return (semi >= 0 ? ct.substring(0, semi) : ct).trim().toLowerCase(Locale.ROOT);
+    }
+
+    /** Tham số charset trong Content-Type, null nếu không có. */
+    public String getCharset() {
+        String ct = getHeader("Content-Type");
+        if (ct == null) return null;
+        for (String part : ct.split(";")) {
+            String p = part.trim();
+            if (p.regionMatches(true, 0, "charset=", 0, 8)) {
+                String v = p.substring(8).trim().replace("\"", "").replace("'", "");
+                return v.isEmpty() ? null : v;
+            }
+        }
+        return null;
+    }
+
     /**
-     * Dựng lại status line + headers để gửi về client.
+     * Dựng lại status line + headers để gửi về client (body forward nguyên văn).
      * Proxy đóng kết nối sau mỗi request nên bỏ các header keep-alive
      * của server đích và báo "Connection: close" cho client.
      */
@@ -66,6 +94,28 @@ public class HttpResponse {
         }
         if (!isInterim()) sb.append("Connection: close\r\n");
         sb.append("\r\n");
+        return sb.toString().getBytes(StandardCharsets.ISO_8859_1);
+    }
+
+    /**
+     * Head cho body đã được proxy sửa (giải nén, làm sạch...): luôn bỏ header framing/hop-by-hop cũ,
+     * bỏ thêm các header trong dropHeaders (tên chữ thường), thêm extraHeaders,
+     * gắn Content-Length mới và Connection: close.
+     */
+    public byte[] toRewrittenHead(int bodyLength, Set<String> dropHeaders, List<Header> extraHeaders) {
+        StringBuilder sb = new StringBuilder();
+        sb.append(httpVersion).append(' ').append(statusCode).append(' ')
+          .append(reasonPhrase).append("\r\n");
+        for (Header h : headers) {
+            String n = h.name().toLowerCase(Locale.ROOT);
+            if (REWRITE_ALWAYS_DROP.contains(n) || dropHeaders.contains(n)) continue;
+            sb.append(h.name()).append(": ").append(h.value()).append("\r\n");
+        }
+        for (Header h : extraHeaders) {
+            sb.append(h.name()).append(": ").append(h.value()).append("\r\n");
+        }
+        sb.append("Content-Length: ").append(bodyLength).append("\r\n");
+        sb.append("Connection: close\r\n\r\n");
         return sb.toString().getBytes(StandardCharsets.ISO_8859_1);
     }
 

@@ -87,10 +87,71 @@ public class HttpResponseParser {
         return n;
     }
 
-    private static boolean hasBody(HttpResponse r, String requestMethod) {
+    public static boolean hasBody(HttpResponse r, String requestMethod) {
         if ("HEAD".equalsIgnoreCase(requestMethod)) return false;
         int s = r.getStatusCode();
         return !(s / 100 == 1 || s == 204 || s == 304);
+    }
+
+    /** Body vượt giới hạn khi proxy cần đọc trọn vào bộ nhớ. */
+    public static class BodyTooLargeException extends IOException {
+        public BodyTooLargeException(long limit) {
+            super("Body vượt giới hạn " + limit + " byte");
+        }
+    }
+
+    /** Content-Length khai báo; -1 nếu không có hoặc dùng chunked. */
+    public static long declaredLength(HttpResponse r) throws IOException {
+        return isChunked(r) ? -1 : contentLength(r);
+    }
+
+    /** Đọc trọn body vào bộ nhớ, đã bỏ khung chunked (chưa giải nén). */
+    public static byte[] readBody(HttpResponse r, String requestMethod, InputStream in, int maxBytes)
+            throws IOException {
+        if (!hasBody(r, requestMethod)) return new byte[0];
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+
+        if (isChunked(r)) {
+            while (true) {
+                long size = parseChunkSize(readLine(in));
+                if (size == 0) {
+                    while (!readLine(in).isEmpty()) { }   // bỏ trailers
+                    break;
+                }
+                if (out.size() + size > maxBytes) throw new BodyTooLargeException(maxBytes);
+                copyExact(in, out, size);
+                if (!readLine(in).isEmpty()) throw new IOException("Thiếu CRLF sau dữ liệu chunk");
+            }
+        } else {
+            long length = contentLength(r);
+            if (length > maxBytes) throw new BodyTooLargeException(maxBytes);
+            if (length >= 0) {
+                copyExact(in, out, length);
+            } else {
+                byte[] buf = new byte[BUFFER_SIZE];
+                int n;
+                try {
+                    while ((n = in.read(buf)) != -1) {
+                        if (out.size() + n > maxBytes) throw new BodyTooLargeException(maxBytes);
+                        out.write(buf, 0, n);
+                    }
+                } catch (SocketTimeoutException e) {
+                    // không có độ dài và server giữ kết nối -> coi như hết body
+                }
+            }
+        }
+        r.setBodyBytes(out.size());
+        return out.toByteArray();
+    }
+
+    private static long parseChunkSize(String sizeLine) throws IOException {
+        try {
+            long size = Long.parseLong(sizeLine.split(";", 2)[0].trim(), 16);
+            if (size < 0) throw new NumberFormatException();
+            return size;
+        } catch (NumberFormatException e) {
+            throw new IOException("Chunk size không hợp lệ: " + sizeLine);
+        }
     }
 
     private static boolean isChunked(HttpResponse r) {
